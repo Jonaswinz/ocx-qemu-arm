@@ -203,6 +203,10 @@ namespace ocx { namespace arm {
         virtual void tb_flush() override;
         virtual void tb_flush_page(u64 start, u64 end) override;
 
+        virtual size_t get_context_size() override;
+        virtual int save_context(char* save) override;
+        virtual int restore_context(char* save) override;
+
         virtual bool trace_insns(bool on) override;
 
     private:
@@ -685,6 +689,72 @@ namespace ocx { namespace arm {
     void core::tb_flush_page(u64 start, u64 end) {
         uc_err ret = uc_tb_flush_page(m_uc, start, end);
         ERROR_ON(ret != UC_ERR_OK, "failed to flush TB page rage");
+    }
+
+    size_t core::get_context_size() {
+        return uc_context_size(m_uc); // Ensure m_uc is valid before calling
+    }
+
+    int core::save_context(char* save) {
+        if (!save) // Check if save is null
+            return UC_ERR_ARG; // Return appropriate error code
+
+        size_t context_size = uc_context_size(m_uc); // Get context size once
+        if (context_size == 0) // Ensure context size is valid
+            return UC_ERR_HANDLE;
+
+        uc_context* context = nullptr;
+
+        // Allocate context
+        uc_err error = uc_context_alloc(m_uc, &context);
+        if (error != 0) 
+            return error;
+
+        // Save the context
+        error = uc_context_save(m_uc, context);
+        if (error != 0) {
+            uc_free(context);
+            return error;
+        }
+
+        // Copy context data to save buffer
+        memcpy(save, context, context_size);
+
+        // Free the allocated context
+        uc_free(context);
+
+        return UC_ERR_OK; // Success
+    }
+
+    int core::restore_context(char* save) {
+        if (!save) // Check if save is null
+            return UC_ERR_ARG; // Return appropriate error code
+
+        size_t context_size = uc_context_size(m_uc); // Get context size once
+        if (context_size == 0) // Ensure context size is valid
+            return UC_ERR_HANDLE;
+
+        uc_context* context = nullptr;
+
+        // Allocate context
+        uc_err error = uc_context_alloc(m_uc, &context);
+        if (error != 0)
+            return error;
+
+        // Copy saved context data to allocated context
+        memcpy(context, save, context_size);
+
+        // Restore the context
+        error = uc_context_restore(m_uc, context);
+        if (error != 0) {
+            uc_free(context);
+            return error;
+        }
+
+        // Free the allocated context
+        uc_free(context);
+
+        return UC_ERR_OK; // Success
     }
 
     bool core::is_aarch64() const {
