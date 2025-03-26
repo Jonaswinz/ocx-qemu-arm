@@ -207,6 +207,8 @@ namespace ocx { namespace arm {
         virtual int save_context(char* save) override;
         virtual int restore_context(char* save) override;
 
+        virtual void trigger_nvic_irq(u8 irqnum);
+
         virtual bool trace_insns(bool on) override;
 
     private:
@@ -755,6 +757,35 @@ namespace ocx { namespace arm {
         uc_free(context);
 
         return UC_ERR_OK; // Success
+    }
+
+    void core::trigger_nvic_irq(u8 irqnum){
+        // Check if the CPU has an NVIC (i.e., Cortex-M architecture)
+        if (!m_model || std::string(m_model->arch).find("cortex-m") == std::string::npos) {
+            INFO("This core does not support NVIC-based interrupts");
+            return;
+        }
+
+        if (irqnum >= 240) {
+            INFO("Invalid NVIC IRQ number: %d", irqnum);
+            return;
+        }
+
+        // Calculate register and bit position for ISER and ISPR
+        uint32_t reg_index = irqnum / 32;
+        uint32_t bit_mask  = 1u << (irqnum % 32);
+
+        // Base addresses for ISER and ISPR
+        uint64_t iser_base = 0xE000E100;
+        uint64_t ispr_base = 0xE000E200;
+
+        // Enable the IRQ
+        uc_mem_write(m_uc, iser_base + reg_index * 4, &bit_mask, sizeof(bit_mask));
+
+        // Set the IRQ as pending
+        uc_mem_write(m_uc, ispr_base + reg_index * 4, &bit_mask, sizeof(bit_mask));
+
+        INFO("Triggered NVIC IRQ %d (ISER%u, bit %u)", irqnum, reg_index, irqnum % 32);
     }
 
     bool core::is_aarch64() const {
